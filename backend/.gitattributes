@@ -1,0 +1,7 @@
+# Large bundled data assets tracked via Git LFS.
+# Install once per clone:   git lfs install && git lfs pull
+data_assets/*.nc  filter=lfs diff=lfs merge=lfs -text
+data_assets/*.npz filter=lfs diff=lfs merge=lfs -text
+
+# Model checkpoints (model_assets/*.pt) are NOT in the repo — they are
+# distributed out-of-band (Google Drive). See backend/model_assets/README.md.

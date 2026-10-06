@@ -1,0 +1,8 @@
+# Do NOT commit model checkpoints — they are distributed via Google Drive.
+# The folder itself is kept via .gitkeep / README.md so the path exists.
+*.pt
+*.pth
+*.ckpt
+!.gitignore
+!.gitkeep
+!README.md

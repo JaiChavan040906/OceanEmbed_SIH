@@ -1,0 +1,19 @@
+# python
+__pycache__/
+*.pyc
+*.pyo
+.venv/
+venv/
+env/
+
+# local secrets
+.env
+
+# OS / editor
+.DS_Store
+.idea/
+.vscode/
+
+# Model checkpoint is ~400 MB — track with Git LFS if you want it in the repo.
+# Uncomment the next line to keep it out of git entirely:
+# model_assets/*.pt

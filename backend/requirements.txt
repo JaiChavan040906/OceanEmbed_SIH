@@ -1,0 +1,23 @@
+fastapi>=0.110
+uvicorn[standard]>=0.29
+pydantic>=2.6
+pydantic-settings>=2.2
+python-multipart
+python-dotenv
+
+# ML / numerical
+torch>=2.1
+numpy
+scipy
+pandas
+xarray
+dask
+netCDF4
+h5netcdf
+cftime
+
+# Plotting (server-side heatmaps)
+matplotlib
+
+# Groq LLM
+groq>=0.11
