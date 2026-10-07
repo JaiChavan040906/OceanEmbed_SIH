@@ -26,6 +26,14 @@ export default function MapCanvas() {
   const map = useRef<maplibregl.Map | null>(null);
   const heatmapUrlRef = useRef<string | null>(null);
 
+  // isStyleLoaded() is false whenever tiles are still streaming and 'load' fires only
+  // once, so gate map mutations on our own flag and queue them until the first load.
+  const mapReady = useRef(false);
+  const pending = useRef<Array<() => void>>([]);
+  const whenReady = (fn: () => void) => {
+    if (mapReady.current) fn(); else pending.current.push(fn);
+  };
+
   const {
     coords, setCoords,
     depthIdx, dateTime,
@@ -41,14 +49,22 @@ export default function MapCanvas() {
     const m = new maplibregl.Map({
       container: mapContainer.current,
       // Simple raster basemap — works everywhere without external vector-tile pipeline.
-      // Minimal style — deep-ocean background. The subsurface / surface / heatwave
-      // PNG overlay (added dynamically below) is the visual, so no external tile
-      // dependency is needed and the map always renders.
+      // The beige background still shows if the tile server is unreachable, and the
+      // subsurface / surface / heatwave PNG overlay (added dynamically below) sits on top.
       style: {
         version: 8,
-        sources: {},
+        sources: {
+          basemap: {
+            type: 'raster',
+            tiles: ['https://server.arcgisonline.com/ArcGIS/rest/services/Ocean/World_Ocean_Base/MapServer/tile/{z}/{y}/{x}'],
+            tileSize: 256,
+            maxzoom: 10,
+            attribution: 'Tiles © Esri — GEBCO, NOAA, Garmin, HERE',
+          },
+        },
         layers: [
           { id: 'bg', type: 'background', paint: { 'background-color': '#edeae2' } },
+          { id: 'basemap', type: 'raster', source: 'basemap' },
         ],
         glyphs: 'https://demotiles.maplibre.org/font/{fontstack}/{range}.pbf',
       },
@@ -77,12 +93,17 @@ export default function MapCanvas() {
 
       // Cursor style
       m.getCanvas().style.cursor = 'crosshair';
+
+      mapReady.current = true;
+      pending.current.splice(0).forEach((fn) => fn());
     });
 
     map.current = m;
     (window as unknown as { __oceanMap?: maplibregl.Map }).__oceanMap = m;
 
     return () => {
+      mapReady.current = false;
+      pending.current = [];
       map.current?.remove();
       map.current = null;
     };
@@ -92,56 +113,63 @@ export default function MapCanvas() {
   // Sync pin marker
   useEffect(() => {
     const m = map.current;
-    if (!m || !m.isStyleLoaded()) return;
+    if (!m) return;
+    whenReady(() => {
+      // Pan to the pin if it was set off-screen (e.g. typed into the lat/lon inputs)
+      if (!m.getBounds().contains([coords.lon, coords.lat])) {
+        m.easeTo({ center: [coords.lon, coords.lat], duration: 600 });
+      }
 
-    const geojson: GeoJSONFeatureCollection = {
-      type: 'FeatureCollection',
-      features: [{
-        type: 'Feature',
-        geometry: { type: 'Point', coordinates: [coords.lon, coords.lat] },
-        properties: {},
-      }],
-    };
+      const geojson: GeoJSONFeatureCollection = {
+        type: 'FeatureCollection',
+        features: [{
+          type: 'Feature',
+          geometry: { type: 'Point', coordinates: [coords.lon, coords.lat] },
+          properties: {},
+        }],
+      };
 
-    if (m.getSource('pin-source')) {
-      (m.getSource('pin-source') as maplibregl.GeoJSONSource).setData(geojson);
-    } else {
-      m.addSource('pin-source', { type: 'geojson', data: geojson });
+      if (m.getSource('pin-source')) {
+        (m.getSource('pin-source') as maplibregl.GeoJSONSource).setData(geojson);
+      } else {
+        m.addSource('pin-source', { type: 'geojson', data: geojson });
 
-      // Outer glow ring
-      m.addLayer({
-        id: 'pin-glow',
-        type: 'circle',
-        source: 'pin-source',
-        paint: {
-          'circle-radius': 16,
-          'circle-color': '#0ea5e9',
-          'circle-opacity': 0.15,
-          'circle-blur': 1,
-        },
-      });
+        // Outer glow ring
+        m.addLayer({
+          id: 'pin-glow',
+          type: 'circle',
+          source: 'pin-source',
+          paint: {
+            'circle-radius': 16,
+            'circle-color': '#0ea5e9',
+            'circle-opacity': 0.15,
+            'circle-blur': 1,
+          },
+        });
 
-      // Main pin circle
-      m.addLayer({
-        id: 'pin-circle',
-        type: 'circle',
-        source: 'pin-source',
-        paint: {
-          'circle-radius': 7,
-          'circle-color': '#0ea5e9',
-          'circle-stroke-width': 2.5,
-          'circle-stroke-color': '#ffffff',
-        },
-      });
-    }
+        // Main pin circle
+        m.addLayer({
+          id: 'pin-circle',
+          type: 'circle',
+          source: 'pin-source',
+          paint: {
+            'circle-radius': 7,
+            'circle-color': '#0ea5e9',
+            'circle-stroke-width': 2.5,
+            'circle-stroke-color': '#ffffff',
+          },
+        });
+      }
+    });
+  // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [coords]);
 
   // Load ARGO float markers
   useEffect(() => {
     const m = map.current;
-    if (!m || !m.isStyleLoaded() || !dateTime) return;
+    if (!m || !dateTime) return;
 
-    (async () => {
+    whenReady(async () => {
       try {
         const floats = await fetchArgoFloats(dateTime, 3);
         const geojson: GeoJSONFeatureCollection = {
@@ -173,7 +201,8 @@ export default function MapCanvas() {
       } catch {
         // ARGO data may not be available
       }
-    })();
+    });
+  // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [dateTime]);
 
   // Fetch the JSON grid (raw °C values) and rasterise to a canvas image URL.
@@ -221,9 +250,7 @@ export default function MapCanvas() {
     const m = map.current;
     if (!m) return;
 
-    const apply = () => {
-      if (!m.isStyleLoaded()) { m.once('load', apply); return; }
-
+    whenReady(() => {
       if (!heatmapUrl) {
         if (m.getLayer('heatmap-layer')) m.removeLayer('heatmap-layer');
         if (m.getSource('heatmap-source')) m.removeSource('heatmap-source');
@@ -246,16 +273,15 @@ export default function MapCanvas() {
           paint: { 'raster-opacity': 0.92, 'raster-fade-duration': 250, 'raster-resampling': 'linear' },
         }, beforeId);
       }
-    };
-    apply();
+    });
+  // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [heatmapUrl]);
 
   // Add coastlines once — extracted from land mask, ships from backend.
   useEffect(() => {
     const m = map.current;
     if (!m) return;
-    const attach = async () => {
-      if (!m.isStyleLoaded()) { m.once('load', attach); return; }
+    whenReady(async () => {
       if (m.getSource('coastlines-src')) return;
       try {
         const gj = await fetchCoastlines();
@@ -264,11 +290,11 @@ export default function MapCanvas() {
           id: 'coastlines',
           type: 'line',
           source: 'coastlines-src',
-          paint: { 'line-color': '#e2e8f0', 'line-width': 1.2, 'line-opacity': 0.85 },
+          paint: { 'line-color': '#334155', 'line-width': 1.2, 'line-opacity': 0.85 },
         });
       } catch { /* coastlines optional */ }
-    };
-    attach();
+    });
+  // eslint-disable-next-line react-hooks/exhaustive-deps
   }, []);
 
   // Hover-to-read temperature (updates cursor tooltip via console for now)

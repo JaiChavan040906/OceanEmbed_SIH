@@ -44,6 +44,17 @@ export default function RightPanel() {
   const confidence = pixelReport?.confidence;
   const personaInsights = pixelReport?.personas?.[persona] || pixelReport?.personas?.['general'];
 
+  // Temperature at the selected depth, read from the pixel's full depth profile
+  const depth = DEPTH_TIERS[depthIdx];
+  const profile = pixelReport?.profile;
+  const di = profile ? profile.depths_m.findIndex((d) => Math.round(d) === depth) : -1;
+  const fmtC = (v: number | null | undefined) =>
+    typeof v === 'number' && Number.isFinite(v) ? `${v.toFixed(2)} °C` : '—';
+  const predAtDepth = di >= 0 ? profile!.predicted_C[di] : null;
+  // The model emits values everywhere; GLORYS is null on land / below the seabed.
+  const glorysAtDepth = di >= 0 ? profile!.glorys_C[di] : null;
+  const isLand = profile != null && !(typeof glorysAtDepth === 'number' && Number.isFinite(glorysAtDepth));
+
   return (
     <div className="glass-panel glass-panel--right" id="right-panel">
       {/* Header */}
@@ -101,6 +112,42 @@ export default function RightPanel() {
           <div className="loading-shimmer" style={{ height: 14, width: '70%', marginBottom: 8 }} />
           <div className="loading-shimmer" style={{ height: 14, width: '50%' }} />
         </div>
+      )}
+
+      {/* Temperature at selected depth */}
+      {profile && !pixelReportLoading && (
+        <>
+          <hr className="panel-divider" />
+          <div className="panel-section" id="depth-temp">
+            <div className="panel-section__label">
+              <span>Temperature at {depth} m</span>
+              <FiAnchor size={12} />
+            </div>
+            {isLand ? (
+              <div style={{ fontSize: 11, color: 'var(--text-muted)' }}>
+                No ocean data here (land or seabed shallower than {depth} m). Pick a sea point.
+              </div>
+            ) : (
+              <>
+                <div style={{ fontSize: 26, fontWeight: 600, fontFamily: 'var(--font-mono)', marginBottom: 6 }}>
+                  {fmtC(predAtDepth)}
+                </div>
+                <div className="readout-row">
+                  <span className="readout-row__label">Model (OceanEmbed)</span>
+                  <span className="readout-row__value">{fmtC(predAtDepth)}</span>
+                </div>
+                <div className="readout-row">
+                  <span className="readout-row__label">GLORYS (reference)</span>
+                  <span className="readout-row__value">{fmtC(profile.glorys_C[di])}</span>
+                </div>
+                <div className="readout-row">
+                  <span className="readout-row__label">Model error</span>
+                  <span className="readout-row__value">{fmtC(profile.error_C[di])}</span>
+                </div>
+              </>
+            )}
+          </div>
+        </>
       )}
 
       {/* Surface State */}
