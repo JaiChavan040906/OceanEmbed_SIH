@@ -1,0 +1,23 @@
+# Runtime-only dependencies for the deployed API.
+# torch is left out: the server answers from the cached predictions in
+# data_assets/preds_v3.npz and never loads the checkpoint (only app/model.py
+# imports torch, and nothing imports app/model.py).
+fastapi>=0.110
+uvicorn[standard]>=0.29
+pydantic>=2.6
+pydantic-settings>=2.2
+python-multipart
+python-dotenv
+
+numpy
+scipy
+pandas
+xarray
+dask
+netCDF4
+h5netcdf
+cftime
+
+matplotlib
+
+groq>=0.11
